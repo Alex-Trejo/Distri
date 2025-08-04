@@ -1,0 +1,13 @@
+# 08-rabbitmq-pvc.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: microservices-ns
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi # 1GB de almacenamiento, puedes ajustar
+  storageClassName: standard # Minikube usa 'standard' por defecto

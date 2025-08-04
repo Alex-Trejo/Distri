@@ -1,0 +1,21 @@
+# 10-rabbitmq-ui-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rabbitmq-ui-ingress
+  namespace: microservices-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: rabbitmq-ui.microservices.local # Nuevo dominio para la UI de RabbitMQ
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rabbitmq
+            port:
+              number: 15672 # Apunta al puerto de la UI

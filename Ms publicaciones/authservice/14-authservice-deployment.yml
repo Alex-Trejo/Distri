@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authservice
+  namespace: microservices-ns
+  labels:
+    app: authservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: authservice
+  template:
+    metadata:
+      labels:
+        app: authservice
+    spec:
+      containers:
+      - name: authservice
+        image: alfa89f/authservice:latest # ¡Tu imagen de Docker Hub!
+        ports:
+        - containerPort: 8081
+        env:
+        # Configuración de la Base de Datos PostgreSQL
+        - name: DB_HOST
+          value: postgres-db.microservices-ns.svc.cluster.local
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: authdb
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        # Secreto JWT y ExpirationMs
+        - name: JWT_SECRET
+          value: Q2hhdEJvdC9PcGVuQUktc2VjcmV0LWxsYXZlei1zZWNyZXQtbGxhdmV6LXNlZ3Vyby1lbi1rdWJlcm5ldGVz
+        - name: JWT_EXPIRATIONMS
+          value: "3600000"
+        
+        # ¡¡¡LA VARIABLE DE ENTORNO EUREKA_SERVER_URL HA SIDO ELIMINADA DE AQUÍ!!!
+        
+        command: ["java"]
+        args: [
+          "-Djava.security.egd=file:/dev/./urandom",
+          "-Deureka.client.serviceUrl.defaultZone=http://eureka-server.microservices-ns.svc.cluster.local:8761/eureka", # ESTO ES LA ÚNICA FUENTE DE EUREKA URL
+          "-jar",
+          "/app/app.jar"
+        ]
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 45
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"

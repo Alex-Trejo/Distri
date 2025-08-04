@@ -1,0 +1,13 @@
+# 05-postgres-pvc.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: microservices-ns
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi # 2GB de almacenamiento, puedes ajustar según necesites
+  storageClassName: standard # Minikube usa 'standard' por defecto

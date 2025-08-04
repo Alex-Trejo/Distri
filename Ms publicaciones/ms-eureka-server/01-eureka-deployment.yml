@@ -1,0 +1,44 @@
+# 01-eureka-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eureka-server
+  namespace: microservices-ns
+  labels:
+    app: eureka-server
+spec:
+  replicas: 1 # Generalmente un solo servidor Eureka es suficiente para un entorno de desarrollo.
+  selector:
+    matchLabels:
+      app: eureka-server
+  template:
+    metadata:
+      labels:
+        app: eureka-server
+    spec:
+      containers:
+      - name: eureka-server
+        image: alfa89f/ms-eureka-server:latest # ¡Cambia esto a tu imagen de Docker Hub!
+        ports:
+        - containerPort: 8761
+        livenessProbe: # Comprueba si la aplicación está viva (respondiendo)
+          httpGet:
+            path: /actuator/health # O la ruta de salud de tu Eureka
+            port: 8761
+          initialDelaySeconds: 60 # Espera más antes de la primera comprobación
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe: # Comprueba si la aplicación está lista para recibir tráfico
+          httpGet:
+            path: /actuator/health # O la ruta de salud de tu Eureka
+            port: 8761
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"

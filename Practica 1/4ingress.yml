@@ -1,0 +1,22 @@
+# 4ingress.yml 
+#practica 1 - Ingress para el servicio prime-crud
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prime-crud-ingress
+  namespace: prime-crud-ns # ¡Importante! Aquí asociamos al Namespace
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: prime-crud.local # Usaremos este dominio local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prime-crud-svc
+            port:
+              number: 80

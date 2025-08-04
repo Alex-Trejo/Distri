@@ -1,0 +1,72 @@
+# 09-rabbitmq-deployment-service.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: microservices-ns
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1 # Una sola instancia para desarrollo
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3-management # Tu imagen de Docker Compose
+        ports:
+        - containerPort: 5672 # Puerto AMQP (clientes)
+        - containerPort: 15672 # Puerto de la interfaz de administración (UI)
+        envFrom: # Cargar variables de entorno desde el Secret
+        - secretRef:
+            name: rabbitmq-credentials
+        volumeMounts:
+        - name: rabbitmq-storage
+          mountPath: /var/lib/rabbitmq # Monta el PVC aquí
+        livenessProbe:
+          tcpSocket:
+            port: 5672
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5672
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+      volumes:
+      - name: rabbitmq-storage
+        persistentVolumeClaim:
+          claimName: rabbitmq-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq # Nombre del servicio que tus microservicios usarán para conectar
+  namespace: microservices-ns
+  labels:
+    app: rabbitmq
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - protocol: TCP
+      port: 5672 # Puerto del servicio AMQP
+      targetPort: 5672
+      name: amqp
+    - protocol: TCP
+      port: 15672 # Puerto del servicio UI
+      targetPort: 15672
+      name: management-ui
+  type: ClusterIP # Accesible solo desde dentro del clúster (UI se expone con Ingress)

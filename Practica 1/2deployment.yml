@@ -1,0 +1,31 @@
+# 2deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prime-crud
+  namespace: prime-crud-ns
+  labels:
+    app: prime-crud
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prime-crud
+  template:
+    metadata:
+      labels:
+        app: prime-crud
+    spec:
+      containers:
+        - name: app
+          image: agcudco/ejemplo-prime-crud:latest # <-- imagen p´ublica
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

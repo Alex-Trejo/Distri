@@ -1,0 +1,21 @@
+# 03-eureka-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eureka-server-ingress
+  namespace: microservices-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: / # Podría no ser necesario si tu Eureka dashboard está en la raíz
+spec:
+  ingressClassName: nginx # Asegúrate de que el addon de Ingress esté habilitado
+  rules:
+  - host: eureka.microservices.local # Nuevo dominio para Eureka
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: eureka-server
+            port:
+              number: 8761

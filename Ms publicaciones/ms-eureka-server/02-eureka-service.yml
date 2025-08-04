@@ -1,0 +1,14 @@
+# 02-eureka-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: eureka-server
+  namespace: microservices-ns
+spec:
+  selector:
+    app: eureka-server
+  ports:
+    - protocol: TCP
+      port: 8761
+      targetPort: 8761
+  type: ClusterIP # Accesible solo desde dentro del clúster por otros servicios

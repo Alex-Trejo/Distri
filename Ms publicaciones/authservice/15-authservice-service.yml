@@ -1,0 +1,17 @@
+# 15-authservice-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: authservice # ¡Importante! El API Gateway lo busca con este nombre
+  namespace: microservices-ns
+  labels:
+    app: authservice
+spec:
+  selector:
+    app: authservice
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+      name: http
+  type: ClusterIP # Se registrará en Eureka y será descubierto por API Gateway

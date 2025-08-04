@@ -1,0 +1,6 @@
+ # 1namespace.yml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prime-crud-ns

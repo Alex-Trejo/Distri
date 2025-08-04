@@ -1,0 +1,54 @@
+# 11-api-gateway-deployment.yml (ACTUALIZADO - Solución Final Eureka URL)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: microservices-ns
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: alfa89f/ms-api-gateway:latest # Tu imagen de Docker Hub
+        ports:
+        - containerPort: 8000
+        env:
+        # Variable para que el filtro de JWT pueda encontrar authservice
+        - name: AUTH_SERVICE_BASE_URL
+          value: http://authservice.microservices-ns.svc.cluster.local:8081
+        
+        command: ["java"]
+        args: [
+          "-Djava.security.egd=file:/dev/./urandom",
+          "-Deureka.client.serviceUrl.defaultZone=http://eureka-server.microservices-ns.svc.cluster.local:8761/eureka", # <-- ¡URL DE EUREKA AQUÍ!
+          "-jar",
+          "/app/app.jar"
+        ]
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"

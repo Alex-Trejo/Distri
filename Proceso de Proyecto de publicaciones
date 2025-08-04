@@ -1,0 +1,886 @@
+Proceso de Proyecto de publicaciones
+
+1. ms-eureka-server
+
+	a. Crea un archivo llamado Dockerfile en la raíz del directorio ms-eureka-server
+
+# Stage 1: Build the application
+FROM maven:3.9.6-eclipse-temurin-17 AS build
+
+# Establecemos el directorio de trabajo dentro del contenedor.
+WORKDIR /app
+
+# Copiamos el archivo pom.xml primero para aprovechar el cache de Docker.
+COPY pom.xml .
+
+# Copiamos los archivos del Maven Wrapper y el directorio .mvn
+# ¡¡¡ESTAS SON LAS LÍNEAS NUEVAS Y CRUCIALES!!!
+COPY mvnw .
+COPY mvnw.cmd .
+COPY .mvn .mvn
+
+# Copiamos el código fuente de la aplicación.
+COPY src ./src
+
+# Empaquetamos la aplicación en un archivo JAR ejecutable.
+RUN ./mvnw clean package -DskipTests
+
+# Stage 2: Create the final lightweight image
+FROM eclipse-temurin:17-jre-focal
+
+# Establecemos el directorio de trabajo.
+WORKDIR /app
+
+# Copiamos el JAR compilado desde la etapa de construcción anterior.
+# El nombre del JAR se deriva del artifactId y version de tu pom.xml,
+# que en este caso es ms-eureka-server-0.0.1-SNAPSHOT.jar
+COPY --from=build /app/target/ms-eureka-server-0.0.1-SNAPSHOT.jar app.jar
+
+# Exponemos el puerto en el que la aplicación escucha.
+EXPOSE 8761
+
+# Definimos el comando que se ejecutará cuando el contenedor se inicie.
+ENTRYPOINT ["java", "-jar", "app.jar"]
+	
+	b. Construir la Imagen Docker
+
+	docker build -t [TU_DOCKERHUB_USERNAME]/ms-eureka-server:latest .
+	docker build -t alfa89f/ms-eureka-server:latest .
+
+
+	c. Publicar la Imagen en Docker Hub
+		docker login
+
+		Sube la imagen que acabas de construir:
+			docker push [TU_DOCKERHUB_USERNAME]/ms-eureka-server:latest
+
+
+
+	d. Fase 2: Manifiestos de Kubernetes
+
+		Vamos a crear un nuevo Namespace llamado microservices-ns para contener todos los microservicios de este gran proyecto, separándolos de las prácticas anteriores.
+
+		i. 1. 00-namespace.yml (Para el nuevo Namespace de Microservicios)
+			# 00-namespace.yml
+			apiVersion: v1
+			kind: Namespace
+			metadata:
+			  name: microservices-ns
+
+		ii. 2. 01-eureka-deployment.yml
+
+
+			# 01-eureka-deployment.yml
+			apiVersion: apps/v1
+			kind: Deployment
+			metadata:
+			  name: eureka-server
+			  namespace: microservices-ns
+			  labels:
+			    app: eureka-server
+			spec:
+			  replicas: 1 # Generalmente un solo servidor Eureka es suficiente para un entorno de desarrollo.
+			  selector:
+			    matchLabels:
+			      app: eureka-server
+			  template:
+			    metadata:
+			      labels:
+			        app: eureka-server
+			    spec:
+			      containers:
+			      - name: eureka-server
+			        image: [TU_DOCKERHUB_USERNAME]/ms-eureka-server:latest # ¡Cambia esto a tu imagen de Docker Hub!
+			        ports:
+			        - containerPort: 8761
+			        livenessProbe: # Comprueba si la aplicación está viva (respondiendo)
+			          httpGet:
+			            path: /actuator/health # O la ruta de salud de tu Eureka
+			            port: 8761
+			          initialDelaySeconds: 60 # Espera más antes de la primera comprobación
+			          periodSeconds: 10
+			          timeoutSeconds: 5
+			        readinessProbe: # Comprueba si la aplicación está lista para recibir tráfico
+			          httpGet:
+			            path: /actuator/health # O la ruta de salud de tu Eureka
+			            port: 8761
+			          initialDelaySeconds: 30
+			          periodSeconds: 10
+			          timeoutSeconds: 5
+			        resources:
+			          requests:
+			            memory: "512Mi"
+			            cpu: "250m"
+			          limits:
+			            memory: "1024Mi"
+			            cpu: "500m"
+		iii. 3. 02-eureka-service.yml
+
+			Este archivo define cómo otros microservicios dentro del clúster encontrarán a Eureka. Usaremos ClusterIP porque Eureka es un servicio interno.
+
+			# 02-eureka-service.yml
+			apiVersion: v1
+			kind: Service
+			metadata:
+			  name: eureka-server
+			  namespace: microservices-ns
+			spec:
+			  selector:
+			    app: eureka-server
+			  ports:
+			    - protocol: TCP
+			      port: 8761
+			      targetPort: 8761
+			  type: ClusterIP # Accesible solo desde dentro del clúster por otros servicios
+
+		iiii. 4. 03-eureka-ingress.yml (Opcional, para acceder al Dashboard de Eureka desde tu navegador)
+
+			Si quieres ver el Dashboard de Eureka desde tu máquina host (lo cual es muy útil para depurar y ver los servicios registrados), puedes usar un Ingress.
+
+			# 03-eureka-ingress.yml
+			apiVersion: networking.k8s.io/v1
+			kind: Ingress
+			metadata:
+			  name: eureka-server-ingress
+			  namespace: microservices-ns
+			  annotations:
+			    nginx.ingress.kubernetes.io/rewrite-target: / # Podría no ser necesario si tu Eureka dashboard está en la raíz
+			spec:
+			  ingressClassName: nginx # Asegúrate de que el addon de Ingress esté habilitado
+			  rules:
+			  - host: eureka.microservices.local # Nuevo dominio para Eureka
+			    http:
+			      paths:
+			      - path: /
+			        pathType: Prefix
+			        backend:
+			          service:
+			            name: eureka-server
+			            port:
+			              number: 8761
+
+	e. Pasos de Despliegue en Kubernetes
+		1.  **Abre tu terminal como Administrador.**
+		2.  **Navega al directorio donde guardaste tus manifiestos de Kubernetes** (ej. `cd k8s-manifests`).
+		3.  **Aplica los manifiestos en orden:**
+    
+		    kubectl apply -f 00-namespace.yml
+		    kubectl apply -f 01-eureka-deployment.yml
+		    kubectl apply -f 02-eureka-service.yml
+		    kubectl apply -f 03-eureka-ingress.yml # Si decides usar el Ingress
+
+
+		 4.  **Verifica el estado del Pod de Eureka:**
+
+		 	kubectl get pods -n microservices-ns
+
+		 	*   Espera hasta que `eureka-server-...` esté `Running 1/1`. Puede tomar un tiempo para que Spring Boot inicie y el liveness/readiness probe pasen.
+
+		5.  **Si usaste el Ingress (`03-eureka-ingress.yml`):**
+		    *   **Actualiza tu archivo `hosts`** (`C:\Windows\System32\drivers\etc\hosts`) añadiendo la nueva línea (manteniendo las anteriores si quieres):
+		        ```
+		        127.0.0.1 eureka.microservices.local
+		        ```
+		    *   **Limpia la caché DNS:**
+		        ```bash
+		        ipconfig /flushdns
+		        ```
+		    *   **Accede al Dashboard de Eureka** en tu navegador (ventana de incógnito):
+		        `http://eureka.microservices.local`
+
+		-> acceder
+			http://eureka.microservices.local/
+
+
+2. Base de datos de postgres
+
+	04-postgres-secrets.yml: Para las credenciales de la base de datos (seguro).
+	05-postgres-pvc.yml: Para el almacenamiento persistente de PostgreSQL.
+	06-postgres-deployment-service.yml: Para el Deployment y Service de PostgreSQL.
+
+	Paso 1: Secreto para las Credenciales de PostgreSQL (04-postgres-secrets.yml)
+		# 04-postgres-secrets.yml
+		apiVersion: v1
+		kind: Secret
+		metadata:
+		  name: postgres-credentials
+		  namespace: microservices-ns
+		type: Opaque
+		stringData:
+		  POSTGRES_USER: user
+		  POSTGRES_PASSWORD: password123
+		  POSTGRES_DB: main_db # Puedes ajustar el nombre de la DB principal
+
+
+	Paso 2: Persistent Volume Claim para PostgreSQL (05-postgres-pvc.yml)
+		Para que los datos de PostgreSQL persistan a través de reinicios del Pod.
+		Crea un archivo llamado 05-postgres-pvc.yml:
+
+		# 05-postgres-pvc.yml
+		apiVersion: v1
+		kind: PersistentVolumeClaim
+		metadata:
+		  name: postgres-pvc
+		  namespace: microservices-ns
+		spec:
+		  accessModes:
+		    - ReadWriteOnce
+		  resources:
+		    requests:
+		      storage: 2Gi # 2GB de almacenamiento, puedes ajustar según necesites
+		  storageClassName: standard # Minikube usa 'standard' por defecto
+
+	Paso 3: Deployment y Service para PostgreSQL (06-postgres-deployment-service.yml)
+		Esto levantará el servidor PostgreSQL y lo expondrá internamente en el clúster.
+		Crea un archivo llamado 06-postgres-deployment-service.yml:
+		# 06-postgres-deployment-service.yml
+		apiVersion: apps/v1
+		kind: Deployment
+		metadata:
+		  name: postgres-db
+		  namespace: microservices-ns
+		  labels:
+		    app: postgres-db
+		spec:
+		  replicas: 1 # Una sola instancia para desarrollo
+		  selector:
+		    matchLabels:
+		      app: postgres-db
+		  template:
+		    metadata:
+		      labels:
+		        app: postgres-db
+		    spec:
+		      containers:
+		      - name: postgres-db
+		        image: postgres:15 # Versión estable de PostgreSQL
+		        ports:
+		        - containerPort: 5432 # Puerto estándar de PostgreSQL
+		        envFrom: # Cargar variables de entorno desde el Secret
+		        - secretRef:
+		            name: postgres-credentials
+		        env: # Variables de entorno adicionales (puedes añadir si es necesario)
+		          - name: PGDATA # Donde PostgreSQL almacenará sus datos
+		            value: /var/lib/postgresql/data/pgdata
+		        volumeMounts:
+		        - name: postgres-storage
+		          mountPath: /var/lib/postgresql/data # Monta el PVC aquí
+		        livenessProbe:
+		          tcpSocket:
+		            port: 5432
+		          initialDelaySeconds: 15
+		          periodSeconds: 10
+		        readinessProbe:
+		          tcpSocket:
+		            port: 5432
+		          initialDelaySeconds: 5
+		          periodSeconds: 10
+		        resources:
+		          requests:
+		            memory: "256Mi"
+		            cpu: "100m"
+		          limits:
+		            memory: "512Mi"
+		            cpu: "250m"
+		      volumes:
+		      - name: postgres-storage
+		        persistentVolumeClaim:
+		          claimName: postgres-pvc
+		---
+		apiVersion: v1
+		kind: Service
+		metadata:
+		  name: postgres-db # Nombre del servicio que tus microservicios usarán para conectar
+		  namespace: microservices-ns
+		  labels:
+		    app: postgres-db
+		spec:
+		  selector:
+		    app: postgres-db
+		  ports:
+		    - protocol: TCP
+		      port: 5432 # Puerto del servicio
+		      targetPort: 5432 # Puerto del contenedor
+		  type: ClusterIP # Accesible solo desde dentro del clúster
+
+
+
+
+	Pasos de Aplicación en Kubernetes para PostgreSQL:
+Abre tu terminal como Administrador.
+Asegúrate de que minikube tunnel esté ejecutándose.
+Navega al directorio donde guardaste estos nuevos manifiestos de Kubernetes (ej. k8s-manifests).
+Aplica los manifiestos en orden:
+
+kubectl apply -f 04-postgres-secrets.yml
+kubectl apply -f 05-postgres-pvc.yml
+kubectl apply -f 06-postgres-deployment-service.yml
+
+Verifica el despliegue de PostgreSQL:
+
+kubectl get pvc -n microservices-ns postgres-pvc
+kubectl get pods -n microservices-ns -l app=postgres-db
+kubectl get svc -n microservices-ns postgres-db
+
+
+3. Despliegue de RabbitMQ en Kubernetes
+Paso 1: Secreto para las Credenciales de RabbitMQ (07-rabbitmq-secrets.yml)
+
+# 07-rabbitmq-secrets.yml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-credentials
+  namespace: microservices-ns
+type: Opaque
+stringData:
+  RABBITMQ_DEFAULT_USER: admin
+  RABBITMQ_DEFAULT_PASS: admin
+
+
+Paso 2: Persistent Volume Claim para RabbitMQ (08-rabbitmq-pvc.yml)
+# 08-rabbitmq-pvc.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: microservices-ns
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi # 1GB de almacenamiento, puedes ajustar
+  storageClassName: standard # Minikube usa 'standard' por defecto
+
+
+Paso 3: Deployment y Service para RabbitMQ (09-rabbitmq-deployment-service.yml)
+# 09-rabbitmq-deployment-service.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: microservices-ns
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1 # Una sola instancia para desarrollo
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+      - name: rabbitmq
+        image: rabbitmq:3-management # Tu imagen de Docker Compose
+        ports:
+        - containerPort: 5672 # Puerto AMQP (clientes)
+        - containerPort: 15672 # Puerto de la interfaz de administración (UI)
+        envFrom: # Cargar variables de entorno desde el Secret
+        - secretRef:
+            name: rabbitmq-credentials
+        volumeMounts:
+        - name: rabbitmq-storage
+          mountPath: /var/lib/rabbitmq # Monta el PVC aquí
+        livenessProbe:
+          tcpSocket:
+            port: 5672
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5672
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+      volumes:
+      - name: rabbitmq-storage
+        persistentVolumeClaim:
+          claimName: rabbitmq-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq # Nombre del servicio que tus microservicios usarán para conectar
+  namespace: microservices-ns
+  labels:
+    app: rabbitmq
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - protocol: TCP
+      port: 5672 # Puerto del servicio AMQP
+      targetPort: 5672
+      name: amqp
+    - protocol: TCP
+      port: 15672 # Puerto del servicio UI
+      targetPort: 15672
+      name: management-ui
+  type: ClusterIP # Accesible solo desde dentro del clúster (UI se expone con Ingress)
+
+
+Paso 4: Ingress para la UI de Administración de RabbitMQ (10-rabbitmq-ui-ingress.yml)
+# 10-rabbitmq-ui-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rabbitmq-ui-ingress
+  namespace: microservices-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: rabbitmq-ui.microservices.local # Nuevo dominio para la UI de RabbitMQ
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rabbitmq
+            port:
+              number: 15672 # Apunta al puerto de la UI
+
+
+   Pasos de Aplicación en Kubernetes para RabbitMQ:
+Abre tu terminal como Administrador.
+Asegúrate de que minikube tunnel esté ejecutándose.
+Navega al directorio donde guardaste estos nuevos manifiestos de Kubernetes.
+Aplica los manifiestos en orden:
+kubectl apply -f 07-rabbitmq-secrets.yml
+kubectl apply -f 08-rabbitmq-pvc.yml
+kubectl apply -f 09-rabbitmq-deployment-service.yml
+kubectl apply -f 10-rabbitmq-ui-ingress.yml
+
+
+Verifica el despliegue de RabbitMQ:
+
+
+kubectl get pvc -n microservices-ns rabbitmq-pvc
+kubectl get pods -n microservices-ns -l app=rabbitmq
+kubectl get svc -n microservices-ns rabbitmq
+kubectl get ingress -n microservices-ns rabbitmq-ui-ingress
+
+Actualiza tu archivo hosts:
+Abre C:\Windows\System32\drivers\etc\hosts (como Administrador) y añade:
+127.0.0.1 rabbitmq-ui.microservices.local
+Limpia la caché DNS: ipconfig /flushdns
+
+Accede a la UI de RabbitMQ:
+
+http://rabbitmq-ui.microservices.local
+Usa las credenciales admin/admin para iniciar sesión.
+
+
+
+3.  ms-api-gateway
+Dockerfile para ms-api-gateway
+
+# Stage 1: Build the application
+FROM maven:3.9.6-eclipse-temurin-17 AS build
+
+WORKDIR /app
+
+COPY pom.xml .
+
+# Copiamos los archivos del Maven Wrapper y el directorio .mvn
+COPY mvnw .
+COPY mvnw.cmd .
+COPY .mvn .mvn
+
+COPY src ./src
+
+# Empaquetamos la aplicación en un archivo JAR ejecutable.
+RUN ./mvnw clean package -DskipTests
+
+# Stage 2: Create the final lightweight image
+FROM eclipse-temurin:17-jre-focal
+
+WORKDIR /app
+
+# Copiamos el JAR compilado desde la etapa de construcción anterior.
+# El nombre del JAR es ms-api-gateway-0.0.1-SNAPSHOT.jar
+COPY --from=build /app/target/ms-api-gateway-0.0.1-SNAPSHOT.jar app.jar
+
+# Exponemos el puerto en el que la aplicación escucha.
+EXPOSE 8000
+
+# Definimos el comando que se ejecutará cuando el contenedor se inicie.
+# Spring Boot puede recibir variables de entorno para sobrescribir la configuración del application.yml
+# Usaremos variables de entorno para la URL de Eureka y AuthService.
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+
+2. Construir la Imagen Docker
+
+docker build -t alfa89f/ms-api-gateway:latest .
+
+3. Publicar la Imagen en Docker Hub
+
+docker push alfa89f/ms-api-gateway:latest
+
+
+Fase 2: Manifiestos de Kubernetes
+1. 11-api-gateway-deployment.yml
+# 11-api-gateway-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: microservices-ns
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1 # Puedes aumentar a 2 o más para alta disponibilidad en prod
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: alfa89f/ms-api-gateway:latest # ¡Tu imagen de Docker Hub!
+        ports:
+        - containerPort: 8000
+        env:
+        # Sobrescribimos la URL de Eureka para que apunte al servicio de Eureka en Kubernetes
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: http://eureka-server.microservices-ns.svc.cluster.local:8761/eureka
+        # La URL de authservice para el filtro. El filtro usa WebClient.create("http://localhost:8081").
+        # Necesitamos que apunte al servicio de authservice en Kubernetes.
+        # Por ahora, dejaremos un placeholder, lo ajustaremos cuando despleguemos authservice.
+        # Asumiremos que authservice se llamará "authservice" y estará en el mismo namespace "microservices-ns"
+        # Si authservice no se llama "authservice", ajusta la URL
+        - name: AUTH_SERVICE_BASE_URL # Necesitas una variable de entorno que tu filtro pueda leer
+          value: http://authservice.microservices-ns.svc.cluster.local:8081
+        livenessProbe:
+          httpGet:
+            path: /actuator/health # Endpoint de salud de Spring Boot Actuator
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+
+
+    Notas importantes:
+EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: Esta variable de entorno es crucial. Sobrescribe defaultZone: http://localhost:8761/eureka de tu application.yml para que apunte al servicio de Eureka en Kubernetes (eureka-server.microservices-ns.svc.cluster.local:8761).
+AUTH_SERVICE_BASE_URL: Tu filtro JwtValidationGatewayFilter actualmente usa una URL hardcodeada http://localhost:8081. Para que funcione en Kubernetes, necesitas modificar tu código Java para que lea esta URL de una variable de entorno.
+Acción Requerida: Modificar JwtValidationGatewayFilter.java
+Cambia la línea:
+private final WebClient webClient = WebClient.create("http://localhost:8081");
+A algo como:
+
+import org.springframework.beans.factory.annotation.Value;
+// ...
+@Value("${auth.service.base.url}") // Lee la propiedad de Spring
+private String authServiceBaseUrl;
+
+// Dentro del constructor o donde sea adecuado
+private WebClient webClient; // Hazla no final
+
+// En un método @PostConstruct o en el constructor si usas inyección directa
+// O simplemente inicialízala así:
+// private final WebClient webClient = WebClient.create(authServiceBaseUrl); // Esto funciona si authServiceBaseUrl se inyecta antes
+// Para Spring Boot con WebClient y @Value, a veces es mejor un @PostConstruct o pasarla al constructor.
+// Una forma simple sería pasarla en el constructor:
+public JwtValidationGatewayFilter(@Value("${AUTH_SERVICE_BASE_URL}") String authServiceBaseUrl) {
+    this.webClient = WebClient.create(authServiceBaseUrl);
+}
+// Asegúrate de que el nombre de la variable de entorno en Kubernetes (AUTH_SERVICE_BASE_URL)
+// coincide con la propiedad de Spring que intentas leer.
+
+Después de modificar el código, deberás re-construir la imagen Docker y subirla a Docker Hub para ms-api-gateway. Hazlo antes de aplicar los manifiestos si quieres que el filtro funcione.
+
+
+2. 12-api-gateway-service.yml
+
+# 12-api-gateway-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: microservices-ns
+  labels:
+    app: api-gateway
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+      name: http
+  type: ClusterIP # Se expondrá externamente con Ingress
+
+
+
+3. 13-api-gateway-ingress.yml
+
+# 13-api-gateway-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: microservices-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: / # Asegúrate si tu API Gateway necesita esto
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api-gateway.microservices.local # Nuevo dominio para el API Gateway
+    http:
+      paths:
+      - path: / # Todas las rutas pasan por el gateway
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8000
+Pasos de Aplicación en Kubernetes para ms-api-gateway:
+Abre tu terminal como Administrador.
+Asegúrate de que minikube tunnel esté ejecutándose.
+Navega al directorio donde guardaste estos nuevos manifiestos de Kubernetes.
+Aplica los manifiestos en orden:
+kubectl apply -f 11-api-gateway-deployment.yml
+kubectl apply -f 12-api-gateway-service.yml
+kubectl apply -f 13-api-gateway-ingress.yml
+Verifica el despliegue del API Gateway:
+
+kubectl get pods -n microservices-ns -l app=api-gateway
+kubectl get svc -n microservices-ns api-gateway
+kubectl get ingress -n microservices-ns api-gateway-ingress
+
+
+Actualiza tu archivo hosts:
+
+127.0.0.1 api-gateway.microservices.local
+
+Limpia la caché DNS: ipconfig /flushdns
+Accede al API Gateway (si aplica, o para verificar Actuator):
+http://api-gateway.microservices.local/actuator/health (debería mostrar un estado de salud).
+También puedes intentar acceder a las rutas que el gateway maneja (ej. http://api-gateway.microservices.local/publicaciones/algo), aunque estas fallarán hasta que los microservicios de publicaciones, catalogo y notificaciones estén desplegados.
+
+
+
+5. authservice
+
+dockerfile
+
+# Stage 1: Build the application
+FROM maven:3.9.6-eclipse-temurin-17 AS build
+
+WORKDIR /app
+
+# Copiamos pom.xml y mvnw/mvnw.cmd/.mvn
+COPY pom.xml .
+COPY mvnw .
+COPY mvnw.cmd .
+COPY .mvn .mvn
+
+# Copiamos el código fuente de la aplicación.
+COPY src ./src
+
+# Empaquetamos la aplicación en un archivo JAR ejecutable.
+# Usamos el wrapper Maven y saltamos los tests.
+RUN ./mvnw clean package -DskipTests
+
+# Stage 2: Create the final lightweight image
+FROM eclipse-temurin:17-jre-focal
+
+WORKDIR /app
+
+# Copiamos el JAR compilado desde la etapa de construcción anterior.
+# El nombre del JAR es authservice-0.0.1-SNAPSHOT.jar
+COPY --from=build /app/target/authservice-0.0.1-SNAPSHOT.jar app.jar
+
+# Exponemos el puerto en el que la aplicación escucha.
+EXPOSE 8081
+
+# Definimos el comando que se ejecutará cuando el contenedor se inicie.
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+	2. Construir la Imagen Docker
+		docker build -t alfa89f/authservice:latest .
+	3. Publicar la Imagen en Docker Hub
+
+		docker push alfa89f/authservice:latest
+Fase 2: Manifiestos de Kubernetes
+
+
+1. 14-authservice-deployment.yml
+
+# 14-authservice-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authservice
+  namespace: microservices-ns
+  labels:
+    app: authservice
+spec:
+  replicas: 1 # Puedes considerar más réplicas en entornos de producción
+  selector:
+    matchLabels:
+      app: authservice
+  template:
+    metadata:
+      labels:
+        app: authservice
+    spec:
+      containers:
+      - name: authservice
+        image: alfa89f/authservice:latest # ¡Tu imagen de Docker Hub!
+        ports:
+        - containerPort: 8081
+        env:
+        # Configuración de Eureka Server
+        - name: EUREKA_SERVER_URL
+          value: http://eureka-server.microservices-ns.svc.cluster.local:8761
+        # Configuración de la Base de Datos PostgreSQL
+        - name: DB_HOST
+          value: postgres-db.microservices-ns.svc.cluster.local # Servicio de PostgreSQL
+        - name: DB_PORT
+          value: "5432" # Puerto de PostgreSQL
+        - name: DB_NAME
+          value: authdb # Base de datos específica para authservice
+        # Credenciales de la base de datos desde el Secret de PostgreSQL
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        # Secreto JWT (es buena práctica usar un Secret de K8s para esto)
+        - name: JWT_SECRET
+          value: Q2hhdEJvdC9PcGVuQUktc2VjcmV0LWxsYXZlei1zZWNyZXQtbGxhdmV6LXNlZ3Vyby1lbi1rdWJlcm5ldGVz # Tu secreto en base64
+        - name: JWT_EXPIRATIONMS
+          value: "3600000"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health # Asumiendo que Actuator health está activo
+            port: 8081
+          initialDelaySeconds: 45 # Aumenta el delay para dar tiempo a la DB y app de iniciar
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8081
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+
+se debe crear la base de datos 
+	Obtén el nombre completo del Pod de PostgreSQL:
+	kubectl get pods -n microservices-ns -l app=postgres-db
+
+	NAME                           READY   STATUS    RESTARTS   AGE
+postgres-db-597df59c9d-swfs4   1/1     Running   0          2m42s
+
+Ejecuta un shell interactivo dentro del Pod de PostgreSQL:
+kubectl exec -it -n microservices-ns <NOMBRE_DEL_POD_POSTGRES> -- bash
+
+
+Conéctate a psql como el usuario postgres o user (el que definiste en el Secret):
+
+
+psql -U user -d postgres
+
+Lista las bases de datos:
+\l
+
+CREATE DATABASE authdb;
+
+
+2. 15-authservice-service.yml
+
+# 15-authservice-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: authservice # ¡Importante! El API Gateway lo busca con este nombre
+  namespace: microservices-ns
+  labels:
+    app: authservice
+spec:
+  selector:
+    app: authservice
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081
+      name: http
+  type: ClusterIP # Se registrará en Eureka y será descubierto por API Gateway
+
+
+
+Pasos de Aplicación en Kubernetes para authservice:
+Abre tu terminal como Administrador.
+Asegúrate de que minikube tunnel esté ejecutándose.
+Navega al directorio donde guardaste estos nuevos manifiestos de Kubernetes.
+APLICACIÓN CRÍTICA: Crear la base de datos authdb en PostgreSQL.
+Puedes hacerlo conectándote al pod de PostgreSQL y usando psql.
+Primero, obtén el nombre completo del pod de PostgreSQL:
+
+kubectl get pods -n microservices-ns -l app=postgres-db
+# Debería darte algo como postgres-db-XXXXXXXXXX-YYYYY
+
+Luego, ejecuta un shell interactivo dentro del pod y conéctate a psql:
+
+kubectl exec -it -n microservices-ns <NOMBRE_DEL_POD_POSTGRES> -- psql -U user -d postgres
+# Te pedirá la contraseña (password123)
+
+Dentro del psql prompt, crea la base de datos:
+
+CREATE DATABASE authdb;
+\q
+
+Aplica los manifiestos de authservice:
+
+kubectl apply -f 14-authservice-deployment.yml
+kubectl apply -f 15-authservice-service.yml
+
+Verifica el despliegue de authservice:
+
+kubectl get pods -n microservices-ns -l app=authservice
+kubectl get svc -n microservices-ns authservice
+
+
+
+

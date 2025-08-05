@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: AUTH-SERVICE
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:authdb}
+    username: ${DB_USERNAME:user}
+    password: ${DB_PASSWORD:password123}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties.hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+
+server:
+  port: 8081
+
+
+eureka:
+  client:
+    service-url:
+      default-zone: ${EUREKA_SERVER_URL}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${random.value}
+
+jwt:
+  secret: jUt+xzSAKrJOS25xYJliKP936KSfIJxGoAhl5m7W1aA=
+  expirationMs: 3600000
+
+logging.level.org.springframework.security: DEBUG
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway

@@ -280,4 +280,3 @@ Ahora que todos los servicios están desplegados, podemos probar el flujo comple
         kubectl logs -n microservices-ns <nombre-pod-notificaciones>
         ```
 
-¡Felicidades! Has desplegado una arquitectura de microservicios completa en Kubernetes.

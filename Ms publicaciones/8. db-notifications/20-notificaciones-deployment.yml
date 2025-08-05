@@ -1,0 +1,82 @@
+# 20-notificaciones-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-notificaciones
+  namespace: microservices-ns
+  labels:
+    app: ms-notificaciones
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ms-notificaciones
+  template:
+    metadata:
+      labels:
+        app: ms-notificaciones
+    spec:
+      containers:
+      - name: ms-notificaciones
+        image: alfa89f/ms-notificaciones:v1.0 # ¡Tu nueva imagen y etiqueta!
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8084
+        env:
+        # Credenciales de la base de datos
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        # Credenciales de RabbitMQ
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_USER
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_PASS
+        
+        command: ["java"]
+        args: [
+          "-Djava.security.egd=file:/dev/./urandom",
+          # Forzar la URL de la base de datos
+          "-Dspring.datasource.url=jdbc:postgresql://postgres-db.microservices-ns.svc.cluster.local:5432/db-notifications",
+          "-Dspring.datasource.username=$(DB_USERNAME)",
+          "-Dspring.datasource.password=$(DB_PASSWORD)",
+          # Forzar la configuración de RabbitMQ
+          "-Dspring.rabbitmq.host=rabbitmq.microservices-ns.svc.cluster.local",
+          "-Dspring.rabbitmq.port=5672",
+          # Forzar la URL de Eureka
+          "-Deureka.client.serviceUrl.defaultZone=http://eureka-server.microservices-ns.svc.cluster.local:8761/eureka",
+          "-jar",
+          "/app/app.jar"
+        ]
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8084
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8084
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"

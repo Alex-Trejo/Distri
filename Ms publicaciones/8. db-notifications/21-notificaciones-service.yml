@@ -1,0 +1,16 @@
+# 21-notificaciones-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-notificaciones
+  namespace: microservices-ns
+  labels:
+    app: ms-notificaciones
+spec:
+  selector:
+    app: ms-notificaciones
+  ports:
+    - protocol: TCP
+      port: 8084
+      targetPort: 8084
+  type: ClusterIP

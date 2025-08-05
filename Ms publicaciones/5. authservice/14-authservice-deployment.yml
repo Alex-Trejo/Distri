@@ -18,6 +18,7 @@ spec:
       containers:
       - name: authservice
         image: alfa89f/authservice:latest # ¡Tu imagen de Docker Hub!
+        imagePullPolicy: Always
         ports:
         - containerPort: 8081
         env:
@@ -40,7 +41,7 @@ spec:
               key: POSTGRES_PASSWORD
         # Secreto JWT y ExpirationMs
         - name: JWT_SECRET
-          value: Q2hhdEJvdC9PcGVuQUktc2VjcmV0LWxsYXZlei1zZWNyZXQtbGxhdmV6LXNlZ3Vyby1lbi1rdWJlcm5ldGVz
+          value: waPTbqZ4nJNa+1xhB3HN7PDsvIBrux+o0Hvp5fSm1ZA=
         - name: JWT_EXPIRATIONMS
           value: "3600000"
         

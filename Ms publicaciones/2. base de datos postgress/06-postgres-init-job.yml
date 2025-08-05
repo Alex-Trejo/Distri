@@ -1,0 +1,47 @@
+# 03-postgres-init-job.yml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-db-init-job
+  namespace: microservices-ns
+spec:
+  template:
+    spec:
+      # No reiniciar el Pod si falla. El Job se encargará de los reintentos.
+      restartPolicy: OnFailure
+      containers:
+      - name: db-init-script
+        image: postgres:15 # Usar la misma imagen que la base de datos para tener psql
+        env:
+        # La forma segura de pasar la contraseña a psql es a través de la variable PGPASSWORD.
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          set -x
+
+          echo "Iniciando Job de inicialización de bases de datos..."
+
+          # Esperar hasta que el servicio de PostgreSQL esté disponible
+          until pg_isready -h postgres-db.microservices-ns.svc.cluster.local -p 5432 -U user; do
+            echo "Esperando a que PostgreSQL esté disponible..."
+            sleep 2
+          done
+          
+          echo "PostgreSQL está listo. Creando bases de datos..."
+
+          # Ejecutar los comandos SQL para crear las bases de datos
+          psql -h postgres-db.microservices-ns.svc.cluster.local -p 5432 -U user -d postgres -c 'CREATE DATABASE "authdb";'
+          psql -h postgres-db.microservices-ns.svc.cluster.local -p 5432 -U user -d postgres -c 'CREATE DATABASE "db-publish";'
+          psql -h postgres-db.microservices-ns.svc.cluster.local -p 5432 -U user -d postgres -c 'CREATE DATABASE "db-catalog";'
+          psql -h postgres-db.microservices-ns.svc.cluster.local -p 5432 -U user -d postgres -c 'CREATE DATABASE "db-notifications";'
+
+          echo "Bases de datos creadas exitosamente."
+  # Número de veces que el Job reintentará si el Pod falla
+  backoffLimit: 4

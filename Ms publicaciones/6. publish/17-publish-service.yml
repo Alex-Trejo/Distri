@@ -1,0 +1,16 @@
+# 17-publish-service.yml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-publish
+  namespace: microservices-ns
+  labels:
+    app: ms-publish
+spec:
+  selector:
+    app: ms-publish
+  ports:
+    - protocol: TCP
+      port: 8082
+      targetPort: 8082
+  type: ClusterIP

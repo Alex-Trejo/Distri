@@ -1,0 +1,56 @@
+# 22-sync-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-sync
+  namespace: microservices-ns
+  labels:
+    app: ms-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ms-sync
+  template:
+    metadata:
+      labels:
+        app: ms-sync
+    spec:
+      containers:
+      - name: ms-sync
+        image: alfa89f/ms-sync:v1.0 # ¡Tu nueva imagen y etiqueta!
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8085
+        env:
+        # Credenciales de RabbitMQ
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_USER
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_PASS
+        
+        command: ["java"]
+        args: [
+          "-Djava.security.egd=file:/dev/./urandom",
+          # Forzar la configuración de RabbitMQ
+          "-Dspring.rabbitmq.host=rabbitmq.microservices-ns.svc.cluster.local",
+          "-Dspring.rabbitmq.port=5672",
+          "-jar",
+          "/app/app.jar"
+        ]
+        # No necesitamos probes de salud en este servicio si no expone un endpoint HTTP,
+        # pero es buena práctica tenerlos si has añadido Actuator.
+        # Por ahora, los omitiremos para simplificar.
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"

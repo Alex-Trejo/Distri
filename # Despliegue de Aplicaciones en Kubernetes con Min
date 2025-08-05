@@ -1,0 +1,210 @@
+# Despliegue de Aplicaciones en Kubernetes con Minikube (Prácticas 1 y 2)
+
+Este README documenta los pasos clave seguidos para configurar un entorno local de Kubernetes usando Minikube y desplegar dos aplicaciones diferentes, incluyendo una aplicación multi-componente, accesible a través de Ingress.
+
+---
+
+## I. Configuración Inicial y Prerrequisitos (Base para ambas Prácticas)
+
+Antes de cualquier despliegue, se realizaron los siguientes pasos esenciales:
+
+1.  **Verificación de Entorno:**
+    *   Sistema Operativo: Windows 11.
+    *   Virtualización (VT-x/AMD-V) habilitada en la BIOS/UEFI.
+    *   Docker Desktop (configurado para usar WSL2 o Hyper-V) funcionando correctamente.
+    *   Acceso a PowerShell o Símbolo del Sistema como **Administrador** para todos los comandos.
+
+2.  **Instalación de Minikube y Kubectl:**
+    *   Se utilizó `winget` para instalar las herramientas CLI necesarias:
+        ```bash
+        winget install Kubernetes.minikube
+        winget install -e --id Kubernetes.kubectl
+        ```
+    *   Se verificó la instalación y versiones:
+        ```bash
+        minikube version
+        kubectl version --client
+        ```
+
+3.  **Inicio del Clúster Minikube:**
+    *   Se inició un clúster de Kubernetes local utilizando el controlador de Docker:
+        ```bash
+        minikube start --driver=docker
+        ```
+
+4.  **Habilitación del Addon Ingress:**
+    *   El Ingress Controller (NGINX) es vital para enrutar el tráfico HTTP/HTTPS a las aplicaciones. Se habilitó como un addon de Minikube:
+        ```bash
+        minikube addons enable ingress
+        ```
+
+5.  **Ejecución de `minikube tunnel`:**
+    *   Este comando es **CRÍTICO** para que los servicios de tipo `LoadBalancer` e `Ingress` sean accesibles desde la máquina local. Debe permanecer ejecutándose en una **terminal separada y activa** durante todas las prácticas:
+        ```bash
+        minikube tunnel
+        ```
+
+---
+
+## II. Práctica 1: Despliegue de la aplicación "prime-crud"
+
+Una vez configurado Minikube, se procedió con el despliegue de la primera aplicación.
+
+1.  **Preparación de Manifiestos (YAMLs):**
+    Se crearon y configuraron los siguientes archivos para definir los recursos de Kubernetes:
+
+    *   `1namespace.yml`:
+        ```yaml
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: prime-crud-ns
+        ```
+    *   `2deployment.yml`:
+        ```yaml
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: prime-crud
+          namespace: prime-crud-ns
+          labels:
+            app: prime-crud
+        spec:
+          replicas: 2
+          selector:
+            matchLabels:
+              app: prime-crud
+          template:
+            metadata:
+              labels:
+                app: prime-crud
+            spec:
+              containers:
+                - name: app
+                  image: agcudco/ejemplo-prime-crud:latest # Imagen pública
+                  ports:
+                    - containerPort: 80
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 200m
+                      memory: 128Mi
+        ```
+    *   `3servicio.yml`:
+        ```yaml
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: prime-crud-svc
+          namespace: prime-crud-ns
+        spec:
+          selector:
+            app: prime-crud
+          ports:
+            - port: 80
+              targetPort: 80
+              protocol: TCP
+          type: ClusterIP
+        ```
+    *   `4ingress.yml`:
+        ```yaml
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: prime-crud-ingress
+          namespace: prime-crud-ns
+          annotations:
+            nginx.ingress.kubernetes.io/rewrite-target: /
+        spec:
+          ingressClassName: nginx
+          rules:
+          - host: prime-crud.local # Dominio para la app
+            http:
+              paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: prime-crud-svc
+                    port:
+                      number: 80
+        ```
+
+2.  **Aplicación de los Manifiestos:**
+    *   Los archivos se aplicaron secuencialmente para asegurar las dependencias:
+        ```bash
+        kubectl apply -f 1namespace.yml
+        kubectl apply -f 2deployment.yml
+        kubectl apply -f 3servicio.yml
+        kubectl apply -f 4ingress.yml
+        ```
+
+3.  **Configuración del Archivo `hosts` de Windows:**
+    *   Se editó `C:\Windows\System32\drivers\etc\hosts` (como Administrador y sin extensión `.txt`) para mapear el dominio local `prime-crud.local` a `127.0.0.1`, que es el punto de entrada manejado por `minikube tunnel`.
+        ```
+        127.0.0.1 prime-crud.local
+        ```
+
+4.  **Limpieza de Caché DNS:**
+    *   Para que los cambios en `hosts` surtan efecto:
+        ```bash
+        ipconfig /flushdns
+        ```
+
+5.  **Acceso a la Aplicación:**
+    *   Se abrió un navegador (modo incógnito recomendado) y se accedió a la URL:
+        `http://prime-crud.local`
+    *   *(Nota: Se realizaron depuraciones para solucionar `ERR_NAME_NOT_RESOLVED` (problema de `hosts` file) y `ERR_CONNECTION_REFUSED` (problema con la redirección del Ingress/`minikube tunnel`), confirmando el correcto funcionamiento a través de `http://localhost:8080` con `kubectl port-forward` como paso intermedio de validación.)*
+
+---
+
+## III. Práctica 2: Despliegue de la aplicación "AppPublicaciones" (Multi-componente)
+
+Esta práctica implicó el despliegue de una arquitectura más compleja (MongoDB, Backend, Frontend).
+
+1.  **Obtención de Archivos de Manifiesto:**
+    *   Los YAMLs se obtuvieron del repositorio `https://github.com/agcudco/taller-kubernetes.git`, específicamente de la carpeta `app-tareas`. Estos YAMLs ya definen un `namespace: ejemplo`.
+
+2.  **Aplicación de Manifiestos en Orden de Dependencia:**
+    *   **Base de Datos (`1database.yml`):** Despliegue de MongoDB con PersistentVolumeClaim. **Crucial esperar a que el Pod de Mongo esté `Running` antes de continuar.**
+        ```bash
+        kubectl apply -f 1database.yml
+        # Verificar: kubectl get pods -n ejemplo (esperar Running 1/1 para mongo-...)
+        ```
+    *   **Backend (`2backend.yml`):** Despliegue de la API REST de Node.js, incluyendo su `Service` e `Ingress` (`backend-ingress`) para el `host: backend.io`. **Crucial esperar a que los Pods de Backend estén `Running`.**
+        ```bash
+        kubectl apply -f 2backend.yml
+        # Verificar: kubectl get pods -n ejemplo (esperar Running 1/1 para backend-...)
+        ```
+    *   **Frontend (`3frontend.yml`):** Despliegue de la interfaz de usuario de Vue.js, con su `Service` e `Ingress` (`front-ingress`) para el `host: frontend.io`. **Crucial esperar a que el Pod de Frontend esté `Running`.**
+        ```bash
+        kubectl apply -f 3frontend.yml
+        # Verificar: kubectl get pods -n ejemplo (esperar Running 1/1 para frontend-...)
+        ```
+
+3.  **Actualización del Archivo `hosts` de Windows:**
+    *   Se añadieron las nuevas entradas de dominio para esta práctica, manteniendo la de la Práctica 1:
+        ```
+        127.0.0.1 prime-crud.local
+        127.0.0.1 backend.io
+        127.0.0.1 frontend.io
+        ```
+
+4.  **Limpieza de Caché DNS:**
+    *   ```bash
+        ipconfig /flushdns
+        ```
+
+5.  **Acceso a la Aplicación:**
+    *   Con `minikube tunnel` corriendo, se accedió al frontend de la aplicación multi-componente:
+        `http://frontend.io`
+    *   (Opcionalmente, se pudo verificar el backend directamente):
+        `http://backend.io`
+
+---
+
+### Conclusión
+
+A través de estas prácticas, se logró configurar un entorno de desarrollo local con Kubernetes usando Minikube, se aprendió a desplegar aplicaciones simples y complejas, a gestionar dependencias, y a exponer servicios a través de Ingress y la herramienta `minikube tunnel`, que es esencial en entornos locales para simular el comportamiento de un LoadBalancer en la nube.

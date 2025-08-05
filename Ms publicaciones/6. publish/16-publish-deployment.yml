@@ -1,0 +1,84 @@
+# 16-publish-deployment.yml (MODIFICADO - Forzar propiedades de DB y RabbitMQ)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-publish
+  namespace: microservices-ns
+  labels:
+    app: ms-publish
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ms-publish
+  template:
+    metadata:
+      labels:
+        app: ms-publish
+    spec:
+      containers:
+      - name: ms-publish
+        image: alfa89f/ms-publish:v1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8082
+        env:
+        # Credenciales de la base de datos desde el Secret
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        # Credenciales de RabbitMQ desde el Secret
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_USER
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rabbitmq-credentials
+              key: RABBITMQ_DEFAULT_PASS
+        
+        command: ["java"]
+        args: [
+          "-Djava.security.egd=file:/dev/./urandom",
+          # ¡¡¡CORRECCIONES AQUÍ!!!
+          # Forzar la URL de la base de datos
+          "-Dspring.datasource.url=jdbc:postgresql://postgres-db.microservices-ns.svc.cluster.local:5432/db-publish",
+          # Forzar el usuario y contraseña de la DB (se leen desde las variables de entorno definidas arriba)
+          "-Dspring.datasource.username=$(DB_USERNAME)",
+          "-Dspring.datasource.password=$(DB_PASSWORD)",
+          # Forzar la configuración de RabbitMQ
+          "-Dspring.rabbitmq.host=rabbitmq.microservices-ns.svc.cluster.local",
+          "-Dspring.rabbitmq.port=5672",
+          # Forzar la URL de Eureka
+          "-Deureka.client.serviceUrl.defaultZone=http://eureka-server.microservices-ns.svc.cluster.local:8761/eureka",
+          "-jar",
+          "/app/app.jar"
+        ]
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
